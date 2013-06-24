@@ -35,3 +35,6 @@ nosetests.xml
 .pydevproject
 
 keys.py
+google-api-python-client
+*.swp
+frogyt.py
