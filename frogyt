@@ -1,0 +1,8 @@
+#!/usr/bin/env python
+
+import gdata
+import gdata.youtube.service
+
+print "Creating client"
+client = gdata.youtube.service.YouTubeService()
+print "Client created"
