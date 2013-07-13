@@ -71,7 +71,7 @@ def get_playlists(youtube):
     
     while True:
         # Get the response
-        playlist_response = p.list(pageToken=pagetoken, part="snippet", mine=True).execute()
+        playlist_response = p.list(pageToken=pagetoken, part="snippet", mine=True, maxResults=50).execute()
     
         # Get housekeeping info from the response
         if playlist_response.has_key("nextPageToken"):
@@ -82,10 +82,10 @@ def get_playlists(youtube):
         pi = playlist_response["pageInfo"]
         if totalresults == 0:
             totalresults = pi["totalResults"]
-        totalsofar = totalsofar + pi["resultsPerPage"]
         
         # Then process the items we wanted
         items = playlist_response["items"]
+        totalsofar = totalsofar + len(items)
         for i in items:
             snippet = i["snippet"]
             title = snippet["title"]
@@ -101,8 +101,6 @@ def get_playlists(youtube):
             print "Shouldn't reach this point"
             break
 
-    # print "\t", string.join(playlists.keys(), "\n\t")
-    open("playlists.json", "wb").write(json.dumps(playlists))
     return playlists
 
 if __name__ == "__main__":
@@ -112,5 +110,16 @@ if __name__ == "__main__":
     except:
         print "That didn't work; dumping from YouTube"
         playlists = get_playlists(youtube)
+        open("playlists.json", "wb").write(json.dumps(playlists))
 
-    print "\t", string.join(playlists.keys(), "\n\t")
+    #print "\t", string.join(playlists.keys(), "\n\t")
+
+    p = youtube.playlists()
+    playlist_response = p.list(id=playlists["Music"], part="snippet", maxResults=50).execute()
+    print playlist_response
+    items = playlist_response["items"]
+    print items
+    for i in items:
+        snippet = i["snippet"]
+        print snippet
+
