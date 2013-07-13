@@ -4,6 +4,7 @@ import httplib2
 import os
 import sys
 import json
+import string
 
 from apiclient.discovery import build
 from oauth2client.file import Storage
@@ -11,7 +12,7 @@ from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run
 
 def jsonprint(item):
-    return json.dumps(item, indent=4, sort_keys=True, separators=(',', ': '))
+    return json.dumps(item, indent=4, separators=(',', ': '))
 
 # CLIENT_SECRETS_FILE, name of a file containing the OAuth 2.0 information for
 # this application, including client_id and client_secret. You can acquire an
@@ -60,15 +61,56 @@ if credentials is None or credentials.invalid:
 youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
   http=credentials.authorize(httplib2.Http()))
 
-if __name__ == "__main__":
+def get_playlists(youtube):
     p = youtube.playlists()
-    dir(p)
-    playlist_response = p.list(part="snippet", mine=True).execute()
-    print playlist_response
-    print dir(playlist_response)
-    items = playlist_response["items"]
+    pagetoken = None
+    totalresults = 0
+    totalsofar = 0
+    lastPage = False
     playlists = {}
-    for i in items:
-        #print jsonprint(i)
-        snippet = i["snippet"]
-        print snippet["title"]
+    
+    while True:
+        # Get the response
+        playlist_response = p.list(pageToken=pagetoken, part="snippet", mine=True).execute()
+    
+        # Get housekeeping info from the response
+        if playlist_response.has_key("nextPageToken"):
+            pagetoken = playlist_response["nextPageToken"]
+        else:
+            print "No next page token, last page"
+            lastPage = True
+        pi = playlist_response["pageInfo"]
+        if totalresults == 0:
+            totalresults = pi["totalResults"]
+        totalsofar = totalsofar + pi["resultsPerPage"]
+        
+        # Then process the items we wanted
+        items = playlist_response["items"]
+        for i in items:
+            snippet = i["snippet"]
+            title = snippet["title"]
+            playlistid = snippet["channelId"]
+            playlists[title] = playlistid
+
+        # Tell the user how we're doing
+        print "Progress: %i/%i" % (totalsofar, totalresults)
+        if totalsofar >= totalresults:
+            print "Total so far (%i) >= totalresults (%i), break" % (totalsofar, totalresults)
+            break
+        if lastPage:
+            print "Shouldn't reach this point"
+            break
+
+    # print "\t", string.join(playlists.keys(), "\n\t")
+    open("playlists.json", "wb").write(json.dumps(playlists))
+    return playlists
+
+if __name__ == "__main__":
+    try:
+        print "Loading playlists from JSON"
+        playlists = json.load(open("playlists.json"))
+    except:
+        print "That didn't work; dumping from YouTube"
+        playlists = get_playlists(youtube)
+
+    print "\t", string.join(playlists.keys(), "\n\t")
