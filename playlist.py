@@ -87,10 +87,12 @@ def get_playlists(youtube):
         items = playlist_response["items"]
         totalsofar = totalsofar + len(items)
         for i in items:
+            #print jsonprint(i)
             snippet = i["snippet"]
             title = snippet["title"]
-            playlistid = snippet["channelId"]
+            playlistid = i["id"]
             playlists[title] = playlistid
+            #print "Playlist %s - id %s" % (title, playlistid)
 
         # Tell the user how we're doing
         print "Progress: %i/%i" % (totalsofar, totalresults)
@@ -115,7 +117,8 @@ if __name__ == "__main__":
     #print "\t", string.join(playlists.keys(), "\n\t")
 
     p = youtube.playlists()
-    playlist_response = p.list(id=playlists["Music"], part="snippet", maxResults=50).execute()
+    print "Requesting Music playlist (id %s)" % playlists["Music"]
+    playlist_response = p.list(id=playlists["Music"], part="snippet,id", maxResults=50).execute()
     print playlist_response
     items = playlist_response["items"]
     print items
