@@ -105,6 +105,16 @@ def get_playlists(youtube):
 
     return playlists
 
+def get_playlist_items(playlist_id):
+    p = youtube.playlistItems()
+    playlist_response = p.list(playlistId=playlist_id, part="snippet", maxResults=50).execute()
+    items = playlist_response["items"]
+    for i in items:
+        snippet = i["snippet"]
+        print jsonprint(snippet)
+
+    return None
+
 if __name__ == "__main__":
     try:
         print "Loading playlists from JSON"
@@ -114,15 +124,8 @@ if __name__ == "__main__":
         playlists = get_playlists(youtube)
         open("playlists.json", "wb").write(json.dumps(playlists))
 
-    #print "\t", string.join(playlists.keys(), "\n\t")
-
-    p = youtube.playlists()
     print "Requesting Music playlist (id %s)" % playlists["Music"]
-    playlist_response = p.list(id=playlists["Music"], part="snippet,id", maxResults=50).execute()
-    print playlist_response
-    items = playlist_response["items"]
-    print items
-    for i in items:
-        snippet = i["snippet"]
-        print snippet
-
+    items = get_playlist_items(playlists["Music"])
+    if items:
+        for i in items:
+            print i
