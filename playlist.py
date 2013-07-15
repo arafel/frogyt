@@ -6,7 +6,14 @@ import sys
 import json
 import string
 
-from apiclient.discovery import build
+try:
+    from apiclient.discovery import build
+except ImportError, e:
+    print "Using local modules"
+    ourpath = os.path.dirname(sys.argv[0]) + os.sep
+    sys.path.insert(0, ourpath + "google-api-python-client")
+    from apiclient.discovery import build
+
 from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run
@@ -107,13 +114,49 @@ def get_playlists(youtube):
 
 def get_playlist_items(playlist_id):
     p = youtube.playlistItems()
-    playlist_response = p.list(playlistId=playlist_id, part="snippet", maxResults=50).execute()
-    items = playlist_response["items"]
-    for i in items:
-        snippet = i["snippet"]
-        print jsonprint(snippet)
+    videos = {}
+    duplicates = []
+    pagetoken = None
+    totalresults = 0
+    totalsofar = 0
+    lastPage = False
 
-    return None
+    while True:
+        playlist_response = p.list(pageToken=pagetoken, playlistId=playlist_id, part="snippet", maxResults=50).execute()
+
+        # Get housekeeping info from the response
+        if playlist_response.has_key("nextPageToken"):
+            pagetoken = playlist_response["nextPageToken"]
+        else:
+            print "No next page token, last page"
+            lastPage = True
+        pi = playlist_response["pageInfo"]
+        if totalresults == 0:
+            totalresults = pi["totalResults"]
+ 
+        items = playlist_response["items"]
+        totalsofar = totalsofar + len(items)
+        for i in items:
+            snippet = i["snippet"]
+            title = snippet["title"]
+            video_resource = snippet["resourceId"]
+            video_id = video_resource["videoId"]
+            if videos.has_key(title):
+                print "Found duplicate entry '%s' (%s)" % (title, video_id)
+                duplicates.append(i)
+            else:
+                videos[title] = (video_id, snippet["position"])
+
+        # Tell the user how we're doing
+        print "Progress: %i/%i" % (totalsofar, totalresults)
+        if totalsofar >= totalresults:
+            print "Total so far (%i) >= total results (%i), break" % (totalsofar, totalresults)
+            break
+        if lastPage:
+            print "Shouldn't reach this point"
+            break
+
+    return videos, duplicates
 
 if __name__ == "__main__":
     try:
@@ -125,7 +168,12 @@ if __name__ == "__main__":
         open("playlists.json", "wb").write(json.dumps(playlists))
 
     print "Requesting Music playlist (id %s)" % playlists["Music"]
-    items = get_playlist_items(playlists["Music"])
+    items, duplicates = get_playlist_items(playlists["Music"])
     if items:
-        for i in items:
-            print i
+        print "Got %i items" % len(items)
+        if duplicates:
+            print "Got %i duplicates" % len(duplicates)
+            for d in duplicates:
+                print jsonprint(d)
+    else:
+        print "Empty playlist."
