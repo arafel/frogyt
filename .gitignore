@@ -38,3 +38,4 @@ keys.py
 google-api-python-client
 *.swp
 frogyt.py
+client_secrets.json
