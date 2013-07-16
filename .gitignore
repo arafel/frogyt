@@ -37,8 +37,8 @@ nosetests.xml
 keys.py
 google-api-python-client
 *.swp
-frogyt.py
 client_secrets.json
 client_secrets.json
 playlist.py-oauth2.json
 playlists.json
+frogyt-oauth2.json
