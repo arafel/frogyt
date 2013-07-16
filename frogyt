@@ -140,11 +140,13 @@ def get_playlist_items(playlist_id):
             title = snippet["title"]
             video_resource = snippet["resourceId"]
             video_id = video_resource["videoId"]
-            if videos.has_key(title):
+            if videos.has_key(video_id):
                 print "Found duplicate entry '%s' (%s)" % (title, video_id)
+                first_title, first_position, first_instance = videos[video_id]
+                print "First entry has playlist position %i" % first_position
                 duplicates.append(i)
             else:
-                videos[title] = (video_id, snippet["position"])
+                videos[video_id] = (title, snippet["position"], i)
 
         # Tell the user how we're doing
         print "Progress: %i/%i" % (totalsofar, totalresults)
@@ -171,8 +173,12 @@ if __name__ == "__main__":
     if items:
         print "Got %i items" % len(items)
         if duplicates:
+            p = youtube.playlistItems()
             print "Got %i duplicates" % len(duplicates)
             for d in duplicates:
-                print jsonprint(d)
+                item_id = d["id"]
+                print "Deleting item %s (%s)" % (d["snippet"]["title"], d["id"])
+                #p.delete(id=item_id).execute()
+
     else:
         print "Empty playlist."
