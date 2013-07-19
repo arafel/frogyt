@@ -1,8 +1,14 @@
-Python libraries required: httplib2, gflags
+Python libraries required: httplib2, gflags. On Debian, do:
 
-Also the Google Python API. If you have 'mr' installed, run "mr update" (after
-adding .mrconfig in this directory to your $HOME/.mrtrust file.)
+	sudo apt-get install python-gflags python-httplib2
 
-On Debian, do:
+Also the Google Python API. If you have `mr` installed, run `mr update`, after
+adding `.mrconfig` in this directory to your `$HOME/.mrtrust` file:
 
-sudo apt-get install python-gflags python-httplib2
+	echo $PWD/.mrconfig >> $HOME/.mrtrust	
+	mr update
+	
+If you don't have `mr` installed:
+
+	sudo apt-get install mr
+
