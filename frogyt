@@ -18,6 +18,8 @@ from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run
 
+dry_run = True
+
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
 
@@ -159,6 +161,10 @@ def get_playlist_items(playlist_id):
 
     return videos, duplicates
 
+def parse_arguments(argv):
+    playlists_to_process = argv
+    return playlists_to_process 
+
 if __name__ == "__main__":
     try:
         print "Loading playlists from JSON"
@@ -168,17 +174,42 @@ if __name__ == "__main__":
         playlists = get_playlists(youtube)
         open("playlists.json", "wb").write(json.dumps(playlists))
 
-    print "Requesting Music playlist (id %s)" % playlists["Music"]
-    items, duplicates = get_playlist_items(playlists["Music"])
-    if items:
-        print "Got %i items" % len(items)
-        if duplicates:
-            p = youtube.playlistItems()
-            print "Got %i duplicates" % len(duplicates)
-            for d in duplicates:
-                item_id = d["id"]
-                print "Deleting item %s (%s)" % (d["snippet"]["title"], d["id"])
-                #p.delete(id=item_id).execute()
+    playlists_to_process = parse_arguments(sys.argv[1:])
 
-    else:
-        print "Empty playlist."
+    all_items = {}
+    all_duplicates = {}
+    print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
+    for playlist in playlists_to_process:
+        print "Requesting %s playlist" % playlist
+        if not playlists.has_key(playlist):
+            print "Playlist not found."
+            continue
+
+        items, duplicates = get_playlist_items(playlists[playlist])
+        if not items and not duplicates:
+            print "Playlist '%s' was empty." % playlist
+            continue
+
+        if items:
+            print "Got %i items" % len(items)
+            all_items.update(items)
+        if duplicates:
+            print "Got %i duplicates." % len(duplicates)
+            print type(duplicates)
+            print type(duplicates[0])
+            all_duplicates.update(duplicates)
+
+    print "Found %i non-duplicate items across %i playlists." % \
+        (len(all_items), len(playlists_to_process))
+
+    if len(all_duplicates) > 0:
+        p = youtube.playlistItems()
+        print "Got %i duplicates" % len(all_duplicates)
+        for d in all_duplicates:
+            item_id = d["id"]
+            if not dry_run:
+                print "Deleting item %s (%s)" % (d["snippet"]["title"], d["id"])
+                p.delete(id=item_id).execute()
+            else:
+                print "Would delete item %s (%s)" % (d["snippet"]["title"], d["id"])
+
