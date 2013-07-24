@@ -165,6 +165,19 @@ def parse_arguments(argv):
     playlists_to_process = argv
     return playlists_to_process 
 
+def convert_playlist_args(playlists, playlist_args):
+    playlist_return = []
+
+    lowercase_playlists = dict(map(lambda x: (string.lower(x), x), playlists.keys()))
+    for playlist in playlist_args:
+        if not lowercase_playlists.has_key(playlist):
+            print "Playlist '%s' not found." % playlist
+            continue
+        else:
+            playlist_return.append(lowercase_playlists[playlist])
+
+    return playlist_return
+
 if __name__ == "__main__":
     try:
         print "Loading playlists from JSON"
@@ -175,15 +188,14 @@ if __name__ == "__main__":
         open("playlists.json", "wb").write(json.dumps(playlists))
 
     playlists_to_process = parse_arguments(sys.argv[1:])
+    playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
 
     all_items = {}
     all_duplicates = {}
     print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
     for playlist in playlists_to_process:
+        # They should all exist after 'convert_playlist_args'
         print "Requesting %s playlist" % playlist
-        if not playlists.has_key(playlist):
-            print "Playlist not found."
-            continue
 
         items, duplicates = get_playlist_items(playlists[playlist])
         if not items and not duplicates:
