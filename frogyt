@@ -170,6 +170,7 @@ def convert_playlist_args(playlists, playlist_args):
 
     lowercase_playlists = dict(map(lambda x: (string.lower(x), x), playlists.keys()))
     for playlist in playlist_args:
+        playlist = string.lower(playlist)
         if not lowercase_playlists.has_key(playlist):
             print "Playlist '%s' not found." % playlist
             continue
