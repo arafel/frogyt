@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import string
+import logging
 
 try:
     from apiclient.discovery import build
@@ -22,6 +23,20 @@ dry_run = True
 
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
+
+def setup_logging(name, log_debug=False):
+    logger = logging.getLogger(name)
+    if log_debug:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
+    # Create a file handler which even logs debug messages
+    fh = logging.FileHandler(name + ".log")
+    fh.setLevel(logging.DEBUG)
+    formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(levelname)s - %(message)s')
+    fh.setFormatter(formatter)
+    logging.getLogger('').addHandler(fh)
+    return logger
 
 # CLIENT_SECRETS_FILE, name of a file containing the OAuth 2.0 information for
 # this application, including client_id and client_secret. You can acquire an
@@ -113,15 +128,16 @@ def get_playlists(youtube):
 
     return playlists
 
-def get_playlist_items(playlist_id):
+def get_playlist_items(videos_acc, duplicates_acc, playlist_id):
     p = youtube.playlistItems()
-    videos = {}
-    duplicates = []
     pagetoken = None
     totalresults = 0
     totalsofar = 0
+    new_count = 0
+    duplicate_count = 0
     lastPage = False
 
+    print "Processing playlist ID %s" % playlist_id
     while True:
         playlist_response = p.list(pageToken=pagetoken, playlistId=playlist_id, part="snippet", maxResults=50).execute()
 
@@ -129,7 +145,7 @@ def get_playlist_items(playlist_id):
         if playlist_response.has_key("nextPageToken"):
             pagetoken = playlist_response["nextPageToken"]
         else:
-            print "No next page token, last page"
+            #print "No next page token, last page"
             lastPage = True
         pi = playlist_response["pageInfo"]
         if totalresults == 0:
@@ -140,15 +156,23 @@ def get_playlist_items(playlist_id):
         for i in items:
             snippet = i["snippet"]
             title = snippet["title"]
+            if title == "Private video" and snippet["description"] == "This video is private":
+                print "Private video."
+
             video_resource = snippet["resourceId"]
             video_id = video_resource["videoId"]
-            if videos.has_key(video_id):
+            if videos_acc.has_key(video_id):
                 print "Found duplicate entry '%s' (%s)" % (title, video_id)
-                first_title, first_position, first_instance = videos[video_id]
-                print "First entry has playlist position %i" % first_position
-                duplicates.append(i)
+                first_title, first_position, first_instance, first_playlist = videos_acc[video_id]
+                print "\tFirst entry has position %i in playlist id %s" % (first_position, first_playlist)
+                #print "\titem_id %s" % i["id"]
+                duplicates_acc.append(i)
+                duplicate_count = duplicate_count + 1
             else:
-                videos[video_id] = (title, snippet["position"], i)
+                #print "Video '%s' (%s) is new" % (title, video_id)
+                #print "\titem_id %s" % i["id"]
+                videos_acc[video_id] = (title, snippet["position"], i, playlist_id)
+                new_count = new_count + 1
 
         # Tell the user how we're doing
         print "Progress: %i/%i" % (totalsofar, totalresults)
@@ -159,7 +183,7 @@ def get_playlist_items(playlist_id):
             print "Shouldn't reach this point"
             break
 
-    return videos, duplicates
+    return new_count, duplicate_count
 
 def parse_arguments(argv):
     playlists_to_process = argv
@@ -192,25 +216,21 @@ if __name__ == "__main__":
     playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
 
     all_items = {}
-    all_duplicates = {}
+    all_duplicates = []
     print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
     for playlist in playlists_to_process:
         # They should all exist after 'convert_playlist_args'
-        print "Requesting %s playlist" % playlist
+        print "Requesting '%s' playlist" % playlist
 
-        items, duplicates = get_playlist_items(playlists[playlist])
-        if not items and not duplicates:
+        new_count, duplicate_count = get_playlist_items(all_items, all_duplicates, playlists[playlist])
+        if (new_count + duplicate_count) == 0:
             print "Playlist '%s' was empty." % playlist
             continue
 
-        if items:
-            print "Got %i items" % len(items)
-            all_items.update(items)
-        if duplicates:
-            print "Got %i duplicates." % len(duplicates)
-            print type(duplicates)
-            print type(duplicates[0])
-            all_duplicates.update(duplicates)
+        if new_count > 0:
+            print "Got %i items" % new_count
+        if duplicate_count > 0:
+            print "Got %i duplicates." % duplicate_count
 
     print "Found %i non-duplicate items across %i playlists." % \
         (len(all_items), len(playlists_to_process))
