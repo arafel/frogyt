@@ -20,11 +20,13 @@ from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run
 
 dry_run = True
+logger = None
 
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
 
-def setup_logging(name, log_debug=False):
+# set log_to_stream to (e.g.) sys.stdout to log to stdout
+def setup_logging(name, log_debug=False, log_to_stream=None):
     logger = logging.getLogger(name)
     if log_debug:
         logger.setLevel(logging.DEBUG)
@@ -36,6 +38,15 @@ def setup_logging(name, log_debug=False):
     formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(levelname)s - %(message)s')
     fh.setFormatter(formatter)
     logging.getLogger('').addHandler(fh)
+    if log_to_stream:
+        sh = logging.StreamHandler(log_to_stream)
+        if log_debug:
+            sh.setLevel(logging.DEBUG)
+        else:
+            sh.setLevel(logging.INFO)
+        formatter = logging.Formatter('%(asctime)s - %(funcName)s - %(levelname)s - %(message)s')
+        sh.setFormatter(formatter)
+        logging.getLogger('').addHandler(sh)
     return logger
 
 # CLIENT_SECRETS_FILE, name of a file containing the OAuth 2.0 information for
@@ -91,6 +102,7 @@ def get_playlists(youtube):
     totalsofar = 0
     lastPage = False
     playlists = {}
+    playlists_by_id = {}
     
     while True:
         # Get the response
@@ -115,20 +127,22 @@ def get_playlists(youtube):
             title = snippet["title"]
             playlistid = i["id"]
             playlists[title] = playlistid
-            #print "Playlist %s - id %s" % (title, playlistid)
+            playlists_by_id[playlistid] = title
+            logger.debug("Playlist %s - id %s" % (title, playlistid))
 
         # Tell the user how we're doing
         print "Progress: %i/%i" % (totalsofar, totalresults)
         if totalsofar >= totalresults:
             print "Total so far (%i) >= totalresults (%i), break" % (totalsofar, totalresults)
+            logger.info("Total so far (%i) >= totalresults (%i), break" % (totalsofar, totalresults))
             break
         if lastPage:
             print "Shouldn't reach this point"
             break
 
-    return playlists
+    return playlists, playlists_by_id
 
-def get_playlist_items(videos_acc, duplicates_acc, playlist_id):
+def get_playlist_items(videos_acc, duplicates_acc, playlists_by_id, playlist_id):
     p = youtube.playlistItems()
     pagetoken = None
     totalresults = 0
@@ -137,7 +151,9 @@ def get_playlist_items(videos_acc, duplicates_acc, playlist_id):
     duplicate_count = 0
     lastPage = False
 
-    print "Processing playlist ID %s" % playlist_id
+    print "Processing playlist '%s'" % playlists_by_id[playlist_id]
+    logger.info("Processing playlist '%s'" % (playlists_by_id[playlist_id]))
+    logger.debug("Playlists '%s' has id %s" % (playlists_by_id[playlist_id], playlist_id))
     while True:
         playlist_response = p.list(pageToken=pagetoken, playlistId=playlist_id, part="snippet", maxResults=50).execute()
 
@@ -156,21 +172,25 @@ def get_playlist_items(videos_acc, duplicates_acc, playlist_id):
         for i in items:
             snippet = i["snippet"]
             title = snippet["title"]
-            if title == "Private video" and snippet["description"] == "This video is private":
-                print "Private video."
-
             video_resource = snippet["resourceId"]
             video_id = video_resource["videoId"]
+            
+            if title == "Private video" and snippet["description"] == "This video is private":
+                print "Private video."
+                logger.debug("Declared video '%s' as private - video id %s" % (title, video_id))
+
             if videos_acc.has_key(video_id):
-                print "Found duplicate entry '%s' (%s)" % (title, video_id)
+                print "Found duplicate entry '%s'" % (title)
+                logger.info("Found duplicate entry '%s'" % (title))
                 first_title, first_position, first_instance, first_playlist = videos_acc[video_id]
-                print "\tFirst entry has position %i in playlist id %s" % (first_position, first_playlist)
-                #print "\titem_id %s" % i["id"]
+                print "\tFirst entry has position %i in playlist id %s" % (first_position, playlists_by_id[first_playlist])
+                logger.info("\tFirst entry has position %i in playlist id %s" % (first_position, playlists_by_id[first_playlist]))
+                logger.debug("\titem_id %s" % i["id"])
                 duplicates_acc.append(i)
                 duplicate_count = duplicate_count + 1
             else:
-                #print "Video '%s' (%s) is new" % (title, video_id)
-                #print "\titem_id %s" % i["id"]
+                logger.debug("Video '%s' (%s) is new" % (title, video_id))
+                logger.debug("\titem_id %s" % i["id"])
                 videos_acc[video_id] = (title, snippet["position"], i, playlist_id)
                 new_count = new_count + 1
 
@@ -178,9 +198,10 @@ def get_playlist_items(videos_acc, duplicates_acc, playlist_id):
         print "Progress: %i/%i" % (totalsofar, totalresults)
         if totalsofar >= totalresults:
             print "Total so far (%i) >= total results (%i), break" % (totalsofar, totalresults)
+            logger.info("Total so far (%i) >= total results (%i), break" % (totalsofar, totalresults))
             break
         if lastPage:
-            print "Shouldn't reach this point"
+            logger.debug("Shouldn't reach this point (lastPage)")
             break
 
     return new_count, duplicate_count
@@ -197,6 +218,7 @@ def convert_playlist_args(playlists, playlist_args):
         playlist = string.lower(playlist)
         if not lowercase_playlists.has_key(playlist):
             print "Playlist '%s' not found." % playlist
+            logger.info("Playlist '%s' not found." % playlist)
             continue
         else:
             playlist_return.append(lowercase_playlists[playlist])
@@ -204,45 +226,58 @@ def convert_playlist_args(playlists, playlist_args):
     return playlist_return
 
 if __name__ == "__main__":
+    # Set up the logger as early as possible
+    logger = setup_logging("frogyt", log_debug=True)
     try:
-        print "Loading playlists from JSON"
-        playlists = json.load(open("playlists.json"))
-    except:
-        print "That didn't work; dumping from YouTube"
-        playlists = get_playlists(youtube)
-        open("playlists.json", "wb").write(json.dumps(playlists))
+        try:
+            print "Loading playlists from JSON"
+            playlists, playlists_by_id = json.load(open("playlists.json"))
+        except:
+            print "That didn't work; dumping from YouTube"
+            playlists, playlists_by_id = get_playlists(youtube)
+            open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
 
-    playlists_to_process = parse_arguments(sys.argv[1:])
-    playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
+        playlists_to_process = parse_arguments(sys.argv[1:])
+        playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
 
-    all_items = {}
-    all_duplicates = []
-    print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
-    for playlist in playlists_to_process:
-        # They should all exist after 'convert_playlist_args'
-        print "Requesting '%s' playlist" % playlist
+        all_items = {}
+        all_duplicates = []
+        print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
+        for playlist_title in playlists_to_process:
+            # They should all exist after 'convert_playlist_args'
+            print ""
+            print "Requesting '%s' playlist" % playlist_title
 
-        new_count, duplicate_count = get_playlist_items(all_items, all_duplicates, playlists[playlist])
-        if (new_count + duplicate_count) == 0:
-            print "Playlist '%s' was empty." % playlist
-            continue
+            new_count, duplicate_count = get_playlist_items(all_items, all_duplicates, playlists_by_id, playlists[playlist_title])
+            if (new_count + duplicate_count) == 0:
+                print "Playlist '%s' was empty." % playlist_title
+                continue
 
-        if new_count > 0:
-            print "Got %i items" % new_count
-        if duplicate_count > 0:
-            print "Got %i duplicates." % duplicate_count
+            if new_count > 0:
+                print "Got %i items" % new_count
+            if duplicate_count > 0:
+                print "Got %i duplicates." % duplicate_count
 
-    print "Found %i non-duplicate items across %i playlists." % \
-        (len(all_items), len(playlists_to_process))
+        print "Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process))
+        logger.info("Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process)))
 
-    if len(all_duplicates) > 0:
-        p = youtube.playlistItems()
-        print "Got %i duplicates" % len(all_duplicates)
-        for d in all_duplicates:
-            item_id = d["id"]
-            if not dry_run:
-                print "Deleting item %s (%s)" % (d["snippet"]["title"], d["id"])
-                p.delete(id=item_id).execute()
-            else:
-                print "Would delete item %s (%s)" % (d["snippet"]["title"], d["id"])
+        if len(all_duplicates) > 0:
+            p = youtube.playlistItems()
+            print "Got %i duplicates" % len(all_duplicates)
+            logger.info("Got %i duplicates" % len(all_duplicates))
+            for d in all_duplicates:
+                item_id = d["id"]
+                if not dry_run:
+                    print "Deleting item '%s'" % (d["snippet"]["title"])
+                    logger.info("Deleting item '%s'" % (d["snippet"]["title"]))
+                    logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
+                    p.delete(id=item_id).execute()
+                else:
+                    print "Would delete item '%s'" % (d["snippet"]["title"])
+                    logger.info("Would delete item '%s'" % (d["snippet"]["title"]))
+                    logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
+    except Exception, e:
+        # Final Exception catcher - don't let the user just see a crash.
+        logger.critical("Uncaught exception", exc_info=1)
+        print "Sorry - frogyt crashed. Please send frogyt.log to gribbit@blacksun.org.uk"
 
