@@ -23,12 +23,12 @@ from oauth2client.tools import run
 
 VERSION="0.0.1"
 
-dry_run = True
 logger = None
 
 options = { "log_debug" : False,
             "playlists_from_youtube": False,
-            "storage": None }
+            "storage": "%s-oauth2.json" % sys.argv[0],
+            "dry_run": False }
 
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
@@ -95,11 +95,8 @@ def get_youtube(options):
       message=MISSING_CLIENT_SECRETS_MESSAGE,
       scope=YOUTUBE_READ_WRITE_SCOPE)
 
-    if options["storage"]:
-        storage = Storage(options["storage"])
-    else:
-        storage = Storage("%s-oauth2.json" % sys.argv[0])
-        
+    logger.debug("Using credentials file %s" % options["storage"])
+    storage = Storage(options["storage"])
     credentials = storage.get()
 
     if credentials is None or credentials.invalid:
@@ -115,7 +112,7 @@ def apply_config(cfg, logger):
     if cfg.has_option("frogyt", "log_debug"):
         logger.debug("Processing [%s, %s]" % ("frogyt", "log_debug"))
         options["log_debug"] = cfg.getboolean("frogyt", "log_debug")
-        logger.info("Set options.log_debug to " + options["log_debug"].__str__())
+        logger.debug("Set options.log_debug to " + options["log_debug"].__str__())
         if options["log_debug"]:
             logger.setLevel(logging.DEBUG)
         else:
@@ -146,15 +143,42 @@ def load_config(logger):
 def build_argument_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument("--playlists_from_youtube", help="Force frogyt to download playlists from YouTube rather than trying local cache", action="store_true")
-    parser.add_argument("-c", "--credentials", dest="storage", help="Use this file for storing authorisation credentials")
+    parser.add_argument("-c", "--credentials", help="Use this file for storing authorisation credentials")
+    parser.add_argument("-d", "--debug", help="Enable debug level logging to log file", action="store_true")
+    parser.add_argument("-t", "--testing", help="If in testing mode, no changes are made to YouTube playlists", action="store_true")
     parser.add_argument("playlists", metavar="playlist", nargs='+', help="playlists to process")
     return parser
 
-def apply_args(args, options):
+def apply_args(args, options, logger):
+    # Apply this first, so we catch any debug statements below
+    if args.debug:
+        options["log_debug"] = True
+        logger.setLevel(logging.DEBUG)
+
+    logger.info("Interesting arguments:")
+    for arg in args.__dict__.keys():
+        v = args.__dict__[arg]
+        if v:
+            logger.info("%s - %s" % (arg, v.__repr__()))
+        else:
+            logger.debug("%s - %s" % (arg, v.__repr__()))
+
+    logger.debug("Argument dump:")
+    logger.debug(args.__repr__())
+    logger.debug("Options dump:")
+    logger.debug(options.__repr__())
+
     if args.playlists_from_youtube:
         options["playlists_from_youtube"] = True
-    if args.storage:
+    if args.credentials:
         options["storage"] = args.storage
+    if args.testing:
+        options["dry_run"] = True
+
+    if options["log_debug"]:
+        logger.setLevel(logging.DEBUG)
+    else:
+        logger.setLevel(logging.INFO)
 
 def get_playlists(youtube):
     p = youtube.playlists()
@@ -293,10 +317,8 @@ if __name__ == "__main__":
         # Then see if there are any command-line options taking precedence
         parser = build_argument_parser()
         args = parser.parse_args()
-        #print args
-        apply_args(args, options)
-
-        #sys.exit(0)
+        apply_args(args, options, logger)
+        sys.exit(0)
 
         # Actually get a YouTube object to work with
         youtube = get_youtube(options)
@@ -307,7 +329,7 @@ if __name__ == "__main__":
             open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
         else:
             try:
-                print "Trying to loading playlists from JSON... ",
+                print "Trying to load playlists from JSON... ",
                 playlists, playlists_by_id = json.load(open("playlists.json"))
                 print "done."
             except:
@@ -348,7 +370,7 @@ if __name__ == "__main__":
             logger.info("Got %i duplicates" % len(all_duplicates))
             for d in all_duplicates:
                 item_id = d["id"]
-                if not dry_run:
+                if options["dry_run"]:
                     print "Deleting item '%s'" % (d["snippet"]["title"])
                     logger.info("Deleting item '%s'" % (d["snippet"]["title"]))
                     logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
@@ -357,6 +379,8 @@ if __name__ == "__main__":
                     print "Would delete item '%s'" % (d["snippet"]["title"])
                     logger.info("Would delete item '%s'" % (d["snippet"]["title"]))
                     logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
+
+    # Final exception handler, something we didn't expect went wrong.
     except Exception, e:
         # Final Exception catcher - don't let the user just see a crash.
         logger.critical("Uncaught exception", exc_info=1)
