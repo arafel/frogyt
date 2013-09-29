@@ -270,16 +270,20 @@ if __name__ == "__main__":
     try:
         load_config(logger)
         if options["playlists_from_youtube"]:
+            print "Loading playlists from YouTube"
             playlists, playlists_by_id = get_playlists(youtube)
             open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
         else:
             try:
-                print "Loading playlists from JSON"
+                print "Trying to loading playlists from JSON... ",
                 playlists, playlists_by_id = json.load(open("playlists.json"))
+                print "done."
             except:
-                print "That didn't work; dumping from YouTube"
+                print "\nThat didn't work; dumping from YouTube."
                 playlists, playlists_by_id = get_playlists(youtube)
                 open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
+
+        print ""
 
         playlists_to_process = parse_arguments(sys.argv[1:])
         playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
