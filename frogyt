@@ -5,6 +5,7 @@ import os
 import sys
 import json
 import string
+import ConfigParser
 import logging
 
 try:
@@ -19,8 +20,13 @@ from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run
 
+VERSION="0.0.1"
+
 dry_run = True
 logger = None
+
+options = { "log_debug" : False,
+            "playlists_from_youtube": False }
 
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
@@ -94,6 +100,39 @@ if credentials is None or credentials.invalid:
 
 youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
   http=credentials.authorize(httplib2.Http()))
+
+def apply_config(cfg, logger):
+    # Process debug logging first so the other options get caught
+    if cfg.has_option("frogyt", "log_debug"):
+        logger.debug("Processing [%s, %s]" % ("frogyt", "log_debug"))
+        options["log_debug"] = cfg.getboolean("frogyt", "log_debug")
+        logger.info("Set options.log_debug to " + options["log_debug"].__str__())
+        if options["log_debug"]:
+            logger.setLevel(logging.DEBUG)
+        else:
+            logger.setLevel(logging.INFO)
+
+    # Now do the others
+    for section in cfg.sections():
+        for option in cfg.options(section):
+            if section != "frogyt" or option != "log_debug":
+                logger.debug("Processing [%s, %s]" % (section, option))
+ 
+
+def load_config(logger):
+    cfg = ConfigParser.SafeConfigParser()
+    # Give precedence to more local files
+    cfgfiles = cfg.read(["/etc/frogyt/frogyt.cfg", \
+                            os.path.expanduser("~/.frogyt.cfg"), \
+                            "frogyt.cfg"])
+    if len(cfgfiles) > 0:
+        logger.info("Parsed config from " + string.join(cfgfiles, ', '))
+        apply_config(cfg, logger)
+    else:
+        logger.info("No config files to load, using defaults")
+        print "No config files to load, using defaults"
+
+    return cfg
 
 def get_playlists(youtube):
     p = youtube.playlists()
@@ -227,15 +266,20 @@ def convert_playlist_args(playlists, playlist_args):
 
 if __name__ == "__main__":
     # Set up the logger as early as possible
-    logger = setup_logging("frogyt", log_debug=True)
+    logger = setup_logging("frogyt", log_debug=options["log_debug"])
     try:
-        try:
-            print "Loading playlists from JSON"
-            playlists, playlists_by_id = json.load(open("playlists.json"))
-        except:
-            print "That didn't work; dumping from YouTube"
+        load_config(logger)
+        if options["playlists_from_youtube"]:
             playlists, playlists_by_id = get_playlists(youtube)
             open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
+        else:
+            try:
+                print "Loading playlists from JSON"
+                playlists, playlists_by_id = json.load(open("playlists.json"))
+            except:
+                print "That didn't work; dumping from YouTube"
+                playlists, playlists_by_id = get_playlists(youtube)
+                open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
 
         playlists_to_process = parse_arguments(sys.argv[1:])
         playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
@@ -258,6 +302,7 @@ if __name__ == "__main__":
             if duplicate_count > 0:
                 print "Got %i duplicates." % duplicate_count
 
+        print ""
         print "Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process))
         logger.info("Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process)))
 
