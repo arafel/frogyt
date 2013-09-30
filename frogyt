@@ -99,11 +99,21 @@ def get_youtube(options):
     storage = Storage(options["storage"])
     credentials = storage.get()
 
-    if credentials is None or credentials.invalid:
-      credentials = run(flow, storage)
+    while 1:
+        logger.debug("Starting auth loop")
+        if credentials is None or credentials.invalid:
+            logger.info("Invalid/no credentials, running auth flow")
+            credentials = run(flow, storage)
 
-    youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
-      http=credentials.authorize(httplib2.Http()))
+        logger.debug("Building YouTube object with API %s, version %s" % \
+                        (YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION))
+        try:
+            youtube = build(YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION,
+              http=credentials.authorize(httplib2.Http()))
+            break
+        except AccessTokenRefreshError:
+            logger.info("Access token has expired.")
+            credentials.invalid
 
     return youtube
 
@@ -318,7 +328,6 @@ if __name__ == "__main__":
         parser = build_argument_parser()
         args = parser.parse_args()
         apply_args(args, options, logger)
-        sys.exit(0)
 
         # Actually get a YouTube object to work with
         youtube = get_youtube(options)
