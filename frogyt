@@ -28,7 +28,8 @@ logger = None
 options = { "log_debug" : False,
             "playlists_from_youtube": False,
             "storage": "%s-oauth2.json" % sys.argv[0],
-            "dry_run": False }
+            "dry_run": False,
+            "list_only": False }
 
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
@@ -152,10 +153,11 @@ def load_config(logger):
 
 def build_argument_parser():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--playlists_from_youtube", help="Force frogyt to download playlists from YouTube rather than trying local cache", action="store_true")
+    parser.add_argument("-r", "--refresh-playlists", dest="refresh_playlists", help="Force frogyt to download playlists from YouTube rather than trying local cache", action="store_true")
     parser.add_argument("-c", "--credentials", help="Use this file for storing authorisation credentials")
     parser.add_argument("-d", "--debug", help="Enable debug level logging to log file", action="store_true")
     parser.add_argument("-t", "--testing", help="If in testing mode, no changes are made to YouTube playlists", action="store_true")
+    parser.add_argument("-l", "--list", help="List playlists; if this option is present no duplicate checking is done", dest="list_playlists", action="store_true")
     parser.add_argument("playlists", metavar="playlist", nargs='+', help="playlists to process")
     return parser
 
@@ -173,22 +175,17 @@ def apply_args(args, options, logger):
         else:
             logger.debug("%s - %s" % (arg, v.__repr__()))
 
-    logger.debug("Argument dump:")
-    logger.debug(args.__repr__())
-    logger.debug("Options dump:")
-    logger.debug(options.__repr__())
-
-    if args.playlists_from_youtube:
+    if args.refresh_playlists:
         options["playlists_from_youtube"] = True
     if args.credentials:
         options["storage"] = args.storage
     if args.testing:
         options["dry_run"] = True
-
-    if options["log_debug"]:
-        logger.setLevel(logging.DEBUG)
-    else:
-        logger.setLevel(logging.INFO)
+    if args.list_playlists:
+        options["list_only"] = True
+    
+    logger.debug("Options dump:")
+    logger.debug(options.__repr__())
 
 def get_playlists(youtube):
     p = youtube.playlists()
@@ -326,7 +323,8 @@ if __name__ == "__main__":
 
         # Then see if there are any command-line options taking precedence
         parser = build_argument_parser()
-        args = parser.parse_args()
+        # TODO work out how to pass the unknown arguments to the Google libraries (so stuff like the auth webserver can work)
+        args, unknown_args = parser.parse_known_args()
         apply_args(args, options, logger)
 
         # Actually get a YouTube object to work with
@@ -347,6 +345,12 @@ if __name__ == "__main__":
                 open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
 
         print ""
+
+        if options["list_only"]:
+            print "Playlists:"
+            for pl in playlists:
+                print "\t%s" % (pl)
+            sys.exit(0)
 
         playlists_to_process = args.playlists
         playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
@@ -380,14 +384,14 @@ if __name__ == "__main__":
             for d in all_duplicates:
                 item_id = d["id"]
                 if options["dry_run"]:
+                    print "Would delete item '%s'" % (d["snippet"]["title"])
+                    logger.info("Would delete item '%s'" % (d["snippet"]["title"]))
+                    logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
+                else:
                     print "Deleting item '%s'" % (d["snippet"]["title"])
                     logger.info("Deleting item '%s'" % (d["snippet"]["title"]))
                     logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
                     p.delete(id=item_id).execute()
-                else:
-                    print "Would delete item '%s'" % (d["snippet"]["title"])
-                    logger.info("Would delete item '%s'" % (d["snippet"]["title"]))
-                    logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
 
     # Final exception handler, something we didn't expect went wrong.
     except Exception, e:
