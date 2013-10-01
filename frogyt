@@ -21,6 +21,8 @@ from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
 from oauth2client.tools import run
 
+import oauth2client.tools
+
 VERSION="0.0.1"
 
 logger = None
@@ -152,7 +154,7 @@ def load_config(logger):
     return cfg
 
 def build_argument_parser():
-    parser = argparse.ArgumentParser()
+    parser = argparse.ArgumentParser(parents=[oauth2client.tools.argparser])
     parser.add_argument("-r", "--refresh-playlists", dest="refresh_playlists", help="Force frogyt to download playlists from YouTube rather than trying local cache", action="store_true")
     parser.add_argument("-c", "--credentials", help="Use this file for storing authorisation credentials")
     parser.add_argument("-d", "--debug", help="Enable debug level logging to log file", action="store_true")
