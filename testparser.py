@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 
-import argparse, string
+import sys, argparse, string
 
 teststrings = [ "delete t1", "delete", "delete -t t1 t2", "list t1", "", "list" ]
 
@@ -26,11 +26,17 @@ parser_delete.set_defaults(func=delete_things)
 parser_list = subparsers.add_parser("list")
 parser_list.set_defaults(func=list_things)
 
-for ts in teststrings:
-	print "Running parser with '%s'" % ts
-	try:
-		args, unknown = parser.parse_known_args(ts.split())
-		args.func(args)
-	except:
-		pass
-	print
+if 0:
+	for ts in teststrings:
+		print "Running parser with '%s'" % ts
+		try:
+			args, unknown = parser.parse_known_args(ts.split())
+			args.func(args)
+		except:
+			pass
+		print
+
+# TODO why does making this just "known_args" result in 
+# TypeError: 'Namespace' object is not iterable
+args, unknown = parser.parse_known_args()
+args.func(args)
