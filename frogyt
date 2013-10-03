@@ -19,7 +19,7 @@ except ImportError, e:
 
 from oauth2client.file import Storage
 from oauth2client.client import flow_from_clientsecrets
-from oauth2client.tools import run
+from oauth2client.tools import run_flow
 
 import oauth2client.tools
 
@@ -29,9 +29,7 @@ logger = None
 
 options = { "log_debug" : False,
             "playlists_from_youtube": False,
-            "storage": "%s-oauth2.json" % sys.argv[0],
-            "dry_run": False,
-            "list_only": False }
+            "storage": "%s-oauth2.json" % sys.argv[0] }
 
 def jsonprint(item):
     return json.dumps(item, indent=4, separators=(',', ': '))
@@ -60,7 +58,7 @@ def setup_logging(name, log_debug=False, log_to_stream=None):
         logging.getLogger('').addHandler(sh)
     return logger
 
-def get_youtube(options):
+def get_youtube(args, options):
     # CLIENT_SECRETS_FILE, name of a file containing the OAuth 2.0 information for
     # this application, including client_id and client_secret. You can acquire an
     # ID/secret pair from the API Access tab on the Google APIs Console
@@ -106,7 +104,8 @@ def get_youtube(options):
         logger.debug("Starting auth loop")
         if credentials is None or credentials.invalid:
             logger.info("Invalid/no credentials, running auth flow")
-            credentials = run(flow, storage)
+            #credentials = run(flow, storage)
+            credentials = run_flow(flow, storage, args)
 
         logger.debug("Building YouTube object with API %s, version %s" % \
                         (YOUTUBE_API_SERVICE_NAME, YOUTUBE_API_VERSION))
@@ -155,12 +154,25 @@ def load_config(logger):
 
 def build_argument_parser():
     parser = argparse.ArgumentParser(parents=[oauth2client.tools.argparser])
+
+    # Common arguments
     parser.add_argument("-r", "--refresh-playlists", dest="refresh_playlists", help="Force frogyt to download playlists from YouTube rather than trying local cache", action="store_true")
     parser.add_argument("-c", "--credentials", help="Use this file for storing authorisation credentials")
     parser.add_argument("-d", "--debug", help="Enable debug level logging to log file", action="store_true")
-    parser.add_argument("-t", "--testing", help="If in testing mode, no changes are made to YouTube playlists", action="store_true")
-    parser.add_argument("-l", "--list", help="List playlists; if this option is present no duplicate checking is done", dest="list_playlists", action="store_true")
-    parser.add_argument("playlists", metavar="playlist", nargs='+', help="playlists to process")
+
+    # Now we do subcommands
+    subparsers = parser.add_subparsers()
+
+    # First, the dedupe command.
+    parser_dedupe = subparsers.add_parser("dedupe")
+    parser_dedupe.add_argument("-t", "--testing", help="If in testing mode, no changes are made to YouTube playlists", action="store_true")
+    parser_dedupe.add_argument("playlists", metavar="playlist", nargs='+', help="playlists to process")
+    parser_dedupe.set_defaults(func=dedupe_function)
+
+    # Then the list command
+    parser_list = subparsers.add_parser("list")
+    parser_list.set_defaults(func=list_function)
+
     return parser
 
 def apply_args(args, options, logger):
@@ -181,10 +193,6 @@ def apply_args(args, options, logger):
         options["playlists_from_youtube"] = True
     if args.credentials:
         options["storage"] = args.storage
-    if args.testing:
-        options["dry_run"] = True
-    if args.list_playlists:
-        options["list_only"] = True
     
     logger.debug("Options dump:")
     logger.debug(options.__repr__())
@@ -315,6 +323,55 @@ def convert_playlist_args(playlists, playlist_args):
 
     return playlist_return
 
+def dedupe_function(youtube, playlists, playlists_by_id, args):
+    print args
+    print options
+        
+    playlists_to_process = args.playlists
+    playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
+
+    all_items = {}
+    all_duplicates = []
+    print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
+    for playlist_title in playlists_to_process:
+        print ""
+        print "Requesting '%s' playlist" % playlist_title
+
+        new_count, duplicate_count = get_playlist_items(all_items, all_duplicates, playlists_by_id, playlists[playlist_title])
+        if (new_count + duplicate_count) == 0:
+            print "Playlist '%s' was empty." % playlist_title
+            continue
+
+        if new_count > 0:
+            print "Got %i items" % new_count
+        if duplicate_count > 0:
+            print "Got %i duplicates." % duplicate_count
+
+    print ""
+    print "Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process))
+    logger.info("Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process)))
+
+    if len(all_duplicates) > 0:
+        p = youtube.playlistItems()
+        print "Got %i duplicates" % len(all_duplicates)
+        logger.info("Got %i duplicates" % len(all_duplicates))
+        for d in all_duplicates:
+            item_id = d["id"]
+            if args.testing:
+                print "Would delete item '%s'" % (d["snippet"]["title"])
+                logger.info("Would delete item '%s'" % (d["snippet"]["title"]))
+                logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
+            else:
+                print "Deleting item '%s'" % (d["snippet"]["title"])
+                logger.info("Deleting item '%s'" % (d["snippet"]["title"]))
+                logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
+                p.delete(id=item_id).execute()
+
+def list_function(youtube, playlists, playlists_by_id, args):
+    print "Playlists:"
+    for pl in playlists:
+        print "\t%s" % (pl)
+
 if __name__ == "__main__":
     # Set up the logger as early as possible
     logger = setup_logging("frogyt", log_debug=options["log_debug"])
@@ -324,13 +381,18 @@ if __name__ == "__main__":
         load_config(logger)
 
         # Then see if there are any command-line options taking precedence
-        parser = build_argument_parser()
         # TODO work out how to pass the unknown arguments to the Google libraries (so stuff like the auth webserver can work)
+        parser = build_argument_parser()
         args, unknown_args = parser.parse_known_args()
+
+        if len(unknown_args) > 0:
+            print "Got unknown arguments:", string.join(unknown_args, ", ")
+
+        # Apply the common arguments, leave sub-functions to deal with their own
         apply_args(args, options, logger)
 
         # Actually get a YouTube object to work with
-        youtube = get_youtube(options)
+        youtube = get_youtube(args, options)
 
         if options["playlists_from_youtube"]:
             print "Loading playlists from YouTube"
@@ -348,52 +410,7 @@ if __name__ == "__main__":
 
         print ""
 
-        if options["list_only"]:
-            print "Playlists:"
-            for pl in playlists:
-                print "\t%s" % (pl)
-            sys.exit(0)
-
-        playlists_to_process = args.playlists
-        playlists_to_process = convert_playlist_args(playlists, playlists_to_process)
-
-        all_items = {}
-        all_duplicates = []
-        print "Playlists to process: %s" % (string.join(playlists_to_process, ", "))
-        for playlist_title in playlists_to_process:
-            # They should all exist after 'convert_playlist_args'
-            print ""
-            print "Requesting '%s' playlist" % playlist_title
-
-            new_count, duplicate_count = get_playlist_items(all_items, all_duplicates, playlists_by_id, playlists[playlist_title])
-            if (new_count + duplicate_count) == 0:
-                print "Playlist '%s' was empty." % playlist_title
-                continue
-
-            if new_count > 0:
-                print "Got %i items" % new_count
-            if duplicate_count > 0:
-                print "Got %i duplicates." % duplicate_count
-
-        print ""
-        print "Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process))
-        logger.info("Found %i non-duplicate items across %i playlists." % (len(all_items), len(playlists_to_process)))
-
-        if len(all_duplicates) > 0:
-            p = youtube.playlistItems()
-            print "Got %i duplicates" % len(all_duplicates)
-            logger.info("Got %i duplicates" % len(all_duplicates))
-            for d in all_duplicates:
-                item_id = d["id"]
-                if options["dry_run"]:
-                    print "Would delete item '%s'" % (d["snippet"]["title"])
-                    logger.info("Would delete item '%s'" % (d["snippet"]["title"]))
-                    logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
-                else:
-                    print "Deleting item '%s'" % (d["snippet"]["title"])
-                    logger.info("Deleting item '%s'" % (d["snippet"]["title"]))
-                    logger.debug("Item '%s' has id '%s'" % (d["snippet"]["title"], d["id"]))
-                    p.delete(id=item_id).execute()
+        args.func(youtube, playlists, playlists_by_id, args)
 
     # Final exception handler, something we didn't expect went wrong.
     except Exception, e:
