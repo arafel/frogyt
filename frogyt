@@ -185,6 +185,10 @@ def build_argument_parser():
     parser_create = subparsers.add_parser("create")
     parser_create.set_defaults(func=create_function)
 
+    parser_dump = subparsers.add_parser("dump")
+    parser_dump.add_argument("what", metavar="what", help="What to dump - playlists or items")
+    parser_dump.set_defaults(func=dump_function)
+
     return parser
 
 def apply_args(args, options, logger):
@@ -389,6 +393,14 @@ def list_function(youtube, playlists, playlists_by_id, args):
 def create_function(youtube, playlists, playlists_by_id, args):
     pass
 
+def dump_function(youtube, playlists, playlists_by_id, args):
+    print "Loading playlists from YouTube"
+    playlists, playlists_by_id = get_playlists(youtube)
+    open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
+    if args.what == "items":
+        for pl in playlists:
+            print pl
+
 if __name__ == "__main__":
     # Set up the logger as early as possible
     logger = setup_logging("frogyt", log_debug=options["log_debug"])
@@ -419,7 +431,8 @@ if __name__ == "__main__":
         youtube = get_youtube(args, options)
         print "done."
 
-        if args.subparser_name in [ "list", "dedupe"]:
+        # Dump always gets direct from YouTube
+        if args.subparser_name not in [ "create", "dump"]:
             logger.debug("Subcommand '%s' needs playlist list" % args.subparser_name)
             
             if options["playlists_from_youtube"]:
@@ -449,4 +462,3 @@ if __name__ == "__main__":
         # Final Exception catcher - don't let the user just see a crash.
         logger.critical("Uncaught exception", exc_info=1)
         print "Sorry - frogyt crashed. Please send frogyt.log to gribbit@blacksun.org.uk"
-
