@@ -11,6 +11,7 @@ import argparse
 
 try:
     from apiclient.discovery import build
+    print "Using system modules"
     local_modules = False
 except ImportError, e:
     print "Using local modules"
@@ -19,11 +20,16 @@ except ImportError, e:
     sys.path.insert(0, ourpath + "google-api-python-client")
     from apiclient.discovery import build
 
-from oauth2client.file import Storage
-from oauth2client.client import flow_from_clientsecrets
-from oauth2client.tools import run_flow
+try:
+    from oauth2client.file import Storage
+    from oauth2client.client import flow_from_clientsecrets
+    from oauth2client.tools import run_flow
 
-import oauth2client.tools
+    import oauth2client.tools
+except ImportError, e:
+    print "Error importing modules; your Google API modules may be out of date:"
+    print "\t", e
+    sys.exit(1)
 
 VERSION="0.0.1"
 
@@ -163,7 +169,7 @@ def build_argument_parser():
     parser.add_argument("-d", "--debug", help="Enable debug level logging to log file", action="store_true")
 
     # Now we do subcommands
-    subparsers = parser.add_subparsers()
+    subparsers = parser.add_subparsers(dest='subparser_name')
 
     # First, the dedupe command.
     parser_dedupe = subparsers.add_parser("dedupe")
@@ -174,6 +180,10 @@ def build_argument_parser():
     # Then the list command
     parser_list = subparsers.add_parser("list")
     parser_list.set_defaults(func=list_function)
+
+    # Then the create command
+    parser_create = subparsers.add_parser("create")
+    parser_create.set_defaults(func=create_function)
 
     return parser
 
@@ -376,6 +386,9 @@ def list_function(youtube, playlists, playlists_by_id, args):
     for pl in playlists:
         print "\t%s" % (pl)
 
+def create_function(youtube, playlists, playlists_by_id, args):
+    pass
+
 if __name__ == "__main__":
     # Set up the logger as early as possible
     logger = setup_logging("frogyt", log_debug=options["log_debug"])
@@ -401,23 +414,33 @@ if __name__ == "__main__":
         apply_args(args, options, logger)
 
         # Actually get a YouTube object to work with
+        print "Creating YouTube connection... ",
+        logger.info("Creating YouTube object")
         youtube = get_youtube(args, options)
+        print "done."
 
-        if options["playlists_from_youtube"]:
-            print "Loading playlists from YouTube"
-            playlists, playlists_by_id = get_playlists(youtube)
-            open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
-        else:
-            try:
-                print "Trying to load playlists from JSON... ",
-                playlists, playlists_by_id = json.load(open("playlists.json"))
-                print "done."
-            except:
-                print "\nThat didn't work; dumping from YouTube."
+        if args.subparser_name in [ "list", "dedupe"]:
+            logger.debug("Subcommand '%s' needs playlist list" % args.subparser_name)
+            
+            if options["playlists_from_youtube"]:
+                print "Loading playlists from YouTube"
                 playlists, playlists_by_id = get_playlists(youtube)
                 open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
+            else:
+                try:
+                    print "Trying to load playlists from JSON... ",
+                    playlists, playlists_by_id = json.load(open("playlists.json"))
+                    print "done."
+                except:
+                    print "\nThat didn't work; dumping from YouTube."
+                    playlists, playlists_by_id = get_playlists(youtube)
+                    open("playlists.json", "wb").write(json.dumps((playlists, playlists_by_id)))
 
-        print ""
+            print ""
+        else:
+            logger.debug("Subcommand '%s' doesn't need playlist list" % args.subparser_name)
+            playlists = []
+            playlists_by_id = []
 
         args.func(youtube, playlists, playlists_by_id, args)
 
